@@ -10,7 +10,7 @@ use std::sync::{Arc, Mutex};
 
 #[derive(Default, Debug)]
 pub struct AppState {
-    pub cache: HashMap<String, u64>,
+    pub cache: HashMap<String, SlackTs>,
 }
 
 pub type SharedState = Arc<Mutex<AppState>>;
@@ -34,70 +34,92 @@ async fn post_handler(State(state): State<SharedState>, Json(payload): Json<serd
         Ok(webhook) => match webhook.action {
             Action::ReviewRequested {
                 requested_reviewer: ref reviewer,
-            } => review_requested(&webhook, &reviewer).await,
-            Action::Reviewed { ref review } => reviewed(&webhook, &review).await,
+            } => review_requested(&webhook, &reviewer, state).await,
+            Action::Reviewed { ref review } => reviewed(&webhook, &review, state).await,
             // Action::Closed => opened(webhook, state).await,
-            Action::Opened => opened(webhook, state).await,
+            Action::Opened => opened(&webhook, state).await,
             action => println!("Unhandled action \"{:?}\"", action),
         },
         Err(x) => println!("{}", x),
     }
 }
 
-async fn review_requested(payload: &Webhook, reviewer: &User) {
+async fn review_requested(payload: &Webhook, reviewer: &User, state: SharedState) {
     let requester = &payload.sender.email;
 
     let body = format!("{} requested a review from {}", requester, reviewer.email);
 
     println!("{body}");
+
+    post_repo_payload(payload, &body, state).await;
 }
 
-async fn reviewed(payload: &Webhook, review: &Review) {
+async fn reviewed(payload: &Webhook, review: &Review, state: SharedState) {
     let reviewer = &payload.sender.email;
 
     let body = format!("{} {:?} the pull-request", reviewer, review);
 
     println!("{body}");
+
+    post_repo_payload(payload, &body, state).await;
 }
 
-async fn opened(payload: Webhook, state: SharedState) {
+async fn opened(payload: &Webhook, state: SharedState) {
     let outgoing = OutgoingWebhook {
         email: payload.sender.email.to_owned(),
         title: "opened PR#".to_owned(),
         body: "".to_owned(),
     };
 
-    {
-        let mut state_data = state.lock().unwrap();
-        state_data
-            .cache
-            .insert(payload.pull_request.url, payload.pull_request.id);
-
-        println!("state_data: {state_data:?}");
-    }
-
     let body = serde_json::to_string(&outgoing).unwrap();
-
     println!("{:?}", body);
+
+    post_repo_payload(payload, &body, state).await;
 }
 
 pub fn config_env_var(name: &str) -> Result<String, String> {
     std::env::var(name).map_err(|e| format!("{}: {}", name, e))
 }
 
-async fn post_slack_message() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+async fn post_repo_payload(payload: &Webhook, body: &str, state: SharedState) {
+    let ts = {
+        let state_data = state.lock().unwrap();
+        state_data
+            .cache
+            .get(&payload.pull_request.url)
+            .map(|ts| ts.clone())
+    };
+
+    if let Ok(response) = post_slack_message(&body, ts).await {
+        let mut state_data = state.lock().unwrap();
+        state_data
+            .cache
+            .entry(payload.pull_request.url.clone())
+            .or_insert(response);
+
+        println!("state_data: {state_data:?}");
+    }
+}
+
+async fn post_slack_message(
+    message: &str,
+    parent: Option<SlackTs>,
+) -> Result<SlackTs, Box<dyn std::error::Error + Send + Sync>> {
     let client = SlackClient::new(SlackClientHyperConnector::new()?);
     let token_value: SlackApiTokenValue = config_env_var("SLACK_TEST_TOKEN")?.into();
     let token: SlackApiToken = SlackApiToken::new(token_value);
     let session = client.open_session(&token);
 
-    // let message = WelcomeMessageTemplateParams::new("".into());
+    let message = SlackMessageContent::new().with_text(message.to_string());
 
-    let post_chat_req =
-        SlackApiChatPostMessageRequest::new("#random".into(), message.render_template());
+    let post_chat_req = if let Some(thread_ts) = parent {
+        SlackApiChatPostMessageRequest::new("#aaron-test-channel".into(), message)
+            .with_thread_ts(thread_ts)
+    } else {
+        SlackApiChatPostMessageRequest::new("#aaron-test-channel".into(), message)
+    };
 
     let post_chat_resp = session.chat_post_message(&post_chat_req).await?;
-    println!("post chat resp: {:#?}", &post_chat_resp);
 
-    Ok(())
+    Ok(post_chat_resp.ts)
 }
