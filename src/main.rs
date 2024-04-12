@@ -90,7 +90,7 @@ async fn post_repo_payload(payload: &Webhook, body: &str, state: SharedState) {
             .map(|ts| ts.clone())
     };
 
-    if let Ok(response) = post_slack_message(&body, ts).await {
+    if let Ok(response) = post_slack_message(payload, ts).await {
         let mut state_data = state.lock().unwrap();
         state_data
             .cache
@@ -102,7 +102,7 @@ async fn post_repo_payload(payload: &Webhook, body: &str, state: SharedState) {
 }
 
 async fn post_slack_message(
-    message: &str,
+    message: &Webhook,
     parent: Option<SlackTs>,
 ) -> Result<SlackTs, Box<dyn std::error::Error + Send + Sync>> {
     let client = SlackClient::new(SlackClientHyperConnector::new()?);
@@ -110,7 +110,7 @@ async fn post_slack_message(
     let token: SlackApiToken = SlackApiToken::new(token_value);
     let session = client.open_session(&token);
 
-    let message = SlackMessageContent::new().with_text(message.to_string());
+    let message = message.render_template();
 
     let post_chat_req = if let Some(thread_ts) = parent {
         SlackApiChatPostMessageRequest::new("#aaron-test-channel".into(), message)
