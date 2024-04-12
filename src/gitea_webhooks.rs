@@ -72,7 +72,7 @@ impl SlackMessageTemplate for Webhook {
     fn render_template(&self) -> SlackMessageContent {
         match self.action {
             Action::Opened => render_pr_opened(self),
-            _ => todo!(),
+            _ => SlackMessageContent::new().with_text(format!("A new PR action occurred")),
         }
     }
 }
