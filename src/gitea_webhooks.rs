@@ -127,7 +127,7 @@ impl Webhook {
         };
 
         let slack_user = if let Some(email) = email {
-            fetch_slack_user_from_email(email).await.ok()
+            Webhook::fetch_slack_user_from_email(email).await.ok()
         } else {
             None
         };
@@ -136,6 +136,26 @@ impl Webhook {
             webhook: self,
             slack_user,
         }
+    }
+
+    async fn fetch_slack_user_from_email(
+        email: &str,
+    ) -> Result<SlackUser, Box<dyn std::error::Error + Send + Sync>> {
+        let client = SlackClient::new(SlackClientHyperConnector::new()?);
+        let token_value: SlackApiTokenValue = config_env_var("SLACK_TEST_TOKEN")?.into();
+        let token: SlackApiToken = SlackApiToken::new(token_value);
+        let session = client.open_session(&token);
+
+        let email = EmailAddress(email.to_string());
+        println!("email: {:?}", email);
+
+        let request = SlackApiUsersLookupByEmailRequest::new(email);
+        let slack_user = session.users_lookup_by_email(&request).await;
+        println!("users: {:?}", slack_user);
+
+        let slack_user = slack_user?;
+
+        Ok(slack_user.user)
     }
 }
 
@@ -234,24 +254,4 @@ fn render_pr_opened(webhook: &Webhook) -> SlackMessageContent {
 
 pub fn config_env_var(name: &str) -> Result<String, String> {
     std::env::var(name).map_err(|e| format!("{}: {}", name, e))
-}
-
-async fn fetch_slack_user_from_email(
-    email: &str,
-) -> Result<SlackUser, Box<dyn std::error::Error + Send + Sync>> {
-    let client = SlackClient::new(SlackClientHyperConnector::new()?);
-    let token_value: SlackApiTokenValue = config_env_var("SLACK_TEST_TOKEN")?.into();
-    let token: SlackApiToken = SlackApiToken::new(token_value);
-    let session = client.open_session(&token);
-
-    let email = EmailAddress(email.to_string());
-    println!("email: {:?}", email);
-
-    let request = SlackApiUsersLookupByEmailRequest::new(email);
-    let slack_user = session.users_lookup_by_email(&request).await;
-    println!("users: {:?}", slack_user);
-
-    let slack_user = slack_user?;
-
-    Ok(slack_user.user)
 }
