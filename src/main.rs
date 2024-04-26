@@ -1,7 +1,6 @@
 use axum::body;
 use axum::http::request;
 use axum::{extract::Json, extract::State, routing::post, Router};
-use gitea_webhooks::config_env_var;
 use gitea_webhooks::Action;
 use gitea_webhooks::MySlackMessage;
 use gitea_webhooks::User;
@@ -25,7 +24,6 @@ pub struct AppState {
 pub type SharedState = Arc<Mutex<AppState>>;
 
 const BIND_ADDRESS: &str = "192.168.0.26:6969";
-const GITEA_ADDRESS: &str = "localhost:3000";
 
 #[tokio::main(flavor = "multi_thread")]
 async fn main() {
@@ -65,8 +63,6 @@ async fn post_repo_payload(payload: Webhook, state: SharedState) {
                 .slack_message_cache
                 .entry(payload.pull_request.url.clone())
                 .or_insert(response);
-
-            println!("Added new entry: {:?}", state_data.slack_message_cache);
         }
     }
 }

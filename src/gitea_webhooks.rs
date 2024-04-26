@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{self, json};
 use slack_morphism::prelude::*;
 use strum::Display;
+use url::Url;
 
 #[derive(Deserialize, Debug)]
 pub struct User {
@@ -79,32 +80,39 @@ pub struct MySlackMessage<'a> {
     pub slack_user: Option<SlackUser>,
 }
 
-const GITEA_ADDRESS: &str = "http://localhost:3000/api/v1";
-
 impl Webhook {
     pub async fn deanonymise_emails(
         mut self,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        self.sender.email = Webhook::fetch_gitea_user_email(&self.sender).await?;
+        let mut url = Url::parse(&self.pull_request.url)?;
+        url.set_path("");
+
+        let host = url.as_str();
+
+        self.sender.email = Webhook::fetch_gitea_user_email(&host, &self.sender).await?;
 
         self.pull_request.user.email =
-            Webhook::fetch_gitea_user_email(&self.pull_request.user).await?;
+            Webhook::fetch_gitea_user_email(&host, &self.pull_request.user).await?;
 
         if let Action::ReviewRequested {
             ref mut requested_reviewer,
         } = self.action
         {
-            requested_reviewer.email = Webhook::fetch_gitea_user_email(&requested_reviewer).await?;
+            requested_reviewer.email =
+                Webhook::fetch_gitea_user_email(&host, &requested_reviewer).await?;
         }
 
         Ok(self)
     }
 
     async fn fetch_gitea_user_email(
+        host: &str,
         user: &User,
     ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
         let token = config_env_var("GITEA_API_TOKEN")?;
-        let url = format!("{}/users/{}", GITEA_ADDRESS, user.username);
+
+        let url = format!("{}api/v1/users/{}", host, user.username);
+        println!("{}", url);
 
         let res = Client::new()
             .get(url)
@@ -147,11 +155,9 @@ impl Webhook {
         let session = client.open_session(&token);
 
         let email = EmailAddress(email.to_string());
-        println!("email: {:?}", email);
 
         let request = SlackApiUsersLookupByEmailRequest::new(email);
         let slack_user = session.users_lookup_by_email(&request).await;
-        println!("users: {:?}", slack_user);
 
         let slack_user = slack_user?;
 
