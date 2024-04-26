@@ -118,20 +118,18 @@ impl Webhook {
     }
 
     pub async fn into_my_slack(&self) -> MySlackMessage {
-        let slack_user = match self.action {
+        let email = match self.action {
             Action::ReviewRequested {
                 ref requested_reviewer,
-            } => fetch_slack_user_from_email(&requested_reviewer.email)
-                .await
-                // .inspect_err(|e| eprintln!("failed finding user: {e}"))
-                .ok(),
-            Action::Reviewed { review: _ } => {
-                fetch_slack_user_from_email(&self.pull_request.user.email)
-                    .await
-                    // .inspect_err(|e| eprintln!("failed finding user: {e}"))
-                    .ok()
-            }
+            } => Some(&requested_reviewer.email),
+            Action::Reviewed { review: _ } => Some(&self.pull_request.user.email),
             _ => None,
+        };
+
+        let slack_user = if let Some(email) = email {
+            fetch_slack_user_from_email(email).await.ok()
+        } else {
+            None
         };
 
         MySlackMessage {
