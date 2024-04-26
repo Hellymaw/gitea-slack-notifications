@@ -157,6 +157,29 @@ impl Webhook {
 
         Ok(slack_user.user)
     }
+
+    pub async fn post_slack_message(
+        &self,
+        parent: &Option<SlackTs>,
+    ) -> Result<SlackTs, Box<dyn std::error::Error + Send + Sync>> {
+        let client = SlackClient::new(SlackClientHyperConnector::new()?);
+        let token_value: SlackApiTokenValue = config_env_var("SLACK_TEST_TOKEN")?.into();
+        let token: SlackApiToken = SlackApiToken::new(token_value);
+        let session = client.open_session(&token);
+
+        let message = self.into_my_slack().await.render_template();
+
+        let post_chat_req = if let Some(thread_ts) = parent {
+            SlackApiChatPostMessageRequest::new("#aaron-test-channel".into(), message)
+                .with_thread_ts(thread_ts.clone())
+        } else {
+            SlackApiChatPostMessageRequest::new("#aaron-test-channel".into(), message)
+        };
+
+        let post_chat_resp = session.chat_post_message(&post_chat_req).await?;
+
+        Ok(post_chat_resp.ts)
+    }
 }
 
 impl SlackMessageTemplate for MySlackMessage<'_> {

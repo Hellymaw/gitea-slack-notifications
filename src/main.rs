@@ -58,7 +58,7 @@ async fn post_repo_payload(payload: Webhook, state: SharedState) {
             .map(|ts| ts.clone())
     };
 
-    let response = post_slack_message(&payload, &ts).await;
+    let response = payload.post_slack_message(&ts).await;
     if ts.is_none() {
         if let Ok(response) = response {
             let mut state_data = state.lock().unwrap();
@@ -70,28 +70,4 @@ async fn post_repo_payload(payload: Webhook, state: SharedState) {
             println!("Added new entry: {:?}", state_data.slack_message_cache);
         }
     }
-}
-
-async fn post_slack_message(
-    message: &Webhook,
-    parent: &Option<SlackTs>,
-) -> Result<SlackTs, Box<dyn std::error::Error + Send + Sync>> {
-    let client = SlackClient::new(SlackClientHyperConnector::new()?);
-    let token_value: SlackApiTokenValue = config_env_var("SLACK_TEST_TOKEN")?.into();
-    let token: SlackApiToken = SlackApiToken::new(token_value);
-    let session = client.open_session(&token);
-
-    let message = message.into_my_slack().await;
-    let message = message.render_template();
-
-    let post_chat_req = if let Some(thread_ts) = parent {
-        SlackApiChatPostMessageRequest::new("#aaron-test-channel".into(), message)
-            .with_thread_ts(thread_ts.clone())
-    } else {
-        SlackApiChatPostMessageRequest::new("#aaron-test-channel".into(), message)
-    };
-
-    let post_chat_resp = session.chat_post_message(&post_chat_req).await?;
-
-    Ok(post_chat_resp.ts)
 }
