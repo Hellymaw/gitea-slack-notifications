@@ -103,7 +103,7 @@ impl Webhook {
     async fn fetch_gitea_user_email(
         user: &User,
     ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
-        let token = std::env::var("GITEA_API_TOKEN")?;
+        let token = config_env_var("GITEA_API_TOKEN")?;
         let url = format!("{}/users/{}", GITEA_ADDRESS, user.username);
 
         let res = Client::new()
@@ -275,6 +275,6 @@ fn render_pr_opened(webhook: &Webhook) -> SlackMessageContent {
     ])
 }
 
-pub fn config_env_var(name: &str) -> Result<String, String> {
+fn config_env_var(name: &str) -> Result<String, String> {
     std::env::var(name).map_err(|e| format!("{}: {}", name, e))
 }
