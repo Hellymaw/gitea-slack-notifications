@@ -117,7 +117,7 @@ impl Webhook {
         Ok(res.email)
     }
 
-    pub async fn into_my_slack(&self) -> MySlackMessage {
+    async fn into_my_slack(&self) -> MySlackMessage {
         let email = match self.action {
             Action::ReviewRequested {
                 ref requested_reviewer,

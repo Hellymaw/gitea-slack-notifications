@@ -48,7 +48,6 @@ async fn post_handler(State(state): State<SharedState>, Json(payload): Json<serd
 
 async fn post_repo_payload(payload: Webhook, state: SharedState) {
     let payload = payload.deanonymise_emails().await.unwrap();
-    println!("webhook: {:?}", payload);
 
     let ts = {
         let state_data = state.lock().unwrap();
