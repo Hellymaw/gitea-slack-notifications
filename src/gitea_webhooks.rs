@@ -111,7 +111,6 @@ impl Webhook {
         let token = config_env_var("GITEA_API_TOKEN")?;
 
         let url = format!("{}api/v1/users/{}", host, user.username);
-        println!("{}", url);
 
         let res = Client::new()
             .get(url)
@@ -211,47 +210,37 @@ fn render_basic_action(webhook: &Webhook) -> SlackMessageContent {
 }
 
 fn render_reviewed(slack_message: &MySlackMessage, review: &Review) -> SlackMessageContent {
-    if let Some(user) = &slack_message.slack_user {
-        SlackMessageContent::new().with_blocks(slack_blocks![some_into(
-            SlackSectionBlock::new().with_text(md!(
-                "{}, {} has {} your PR",
-                user.id.to_slack_format(),
-                slack_message.webhook.sender.username,
-                review
-            ))
-        )])
+    let user = if let Some(user) = &slack_message.slack_user {
+        user.id.to_slack_format()
     } else {
-        SlackMessageContent::new().with_blocks(slack_blocks![some_into(
-            SlackSectionBlock::new().with_text(md!(
-                "{}, {} has {} your PR",
-                slack_message.webhook.pull_request.user.username,
-                slack_message.webhook.sender.username,
-                review
-            ))
-        )])
-    }
+        slack_message.webhook.pull_request.user.username.to_string()
+    };
+
+    SlackMessageContent::new().with_blocks(slack_blocks![some_into(
+        SlackSectionBlock::new().with_text(md!(
+            "{}, {} has {} your PR",
+            user,
+            slack_message.webhook.sender.username,
+            review
+        ))
+    )])
 }
 
 fn render_review_requested(slack_message: &MySlackMessage, reviewer: &User) -> SlackMessageContent {
-    if let Some(user) = &slack_message.slack_user {
-        SlackMessageContent::new().with_blocks(slack_blocks![some_into(
-            SlackSectionBlock::new().with_text(md!(
-                "{}, {} has requested you to review {}",
-                user.id.to_slack_format(),
-                slack_message.webhook.sender.username,
-                format_pull_request_url(&slack_message.webhook.pull_request)
-            ))
-        )])
+    let user = if let Some(user) = &slack_message.slack_user {
+        user.id.to_slack_format()
     } else {
-        SlackMessageContent::new().with_blocks(slack_blocks![some_into(
-            SlackSectionBlock::new().with_text(md!(
-                "{}, {} has requested you to review {}",
-                reviewer.username,
-                slack_message.webhook.sender.username,
-                format_pull_request_url(&slack_message.webhook.pull_request)
-            ))
-        )])
-    }
+        reviewer.username.to_string()
+    };
+
+    SlackMessageContent::new().with_blocks(slack_blocks![some_into(
+        SlackSectionBlock::new().with_text(md!(
+            "{}, {} has requested you to review {}",
+            user,
+            slack_message.webhook.sender.username,
+            format_pull_request_url(&slack_message.webhook.pull_request)
+        ))
+    )])
 }
 
 fn render_pr_opened(webhook: &Webhook) -> SlackMessageContent {
