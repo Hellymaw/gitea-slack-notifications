@@ -1,19 +1,11 @@
-use axum::body;
-use axum::http::request;
 use axum::{extract::Json, extract::State, routing::post, Router};
-use gitea_webhooks::Action;
-use gitea_webhooks::MySlackMessage;
-use gitea_webhooks::User;
 use gitea_webhooks::Webhook;
-
-use serde::Deserialize;
-use serde_json::{self, json};
+use serde_json;
 use slack_morphism::prelude::*;
-
-pub mod gitea_webhooks;
-
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
+
+pub mod gitea_webhooks;
 
 #[derive(Default, Debug)]
 pub struct AppState {

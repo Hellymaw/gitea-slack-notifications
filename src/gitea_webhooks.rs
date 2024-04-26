@@ -1,6 +1,5 @@
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
-use serde_json::{self, json};
 use slack_morphism::prelude::*;
 use strum::Display;
 use url::Url;
