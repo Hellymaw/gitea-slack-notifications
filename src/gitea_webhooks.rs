@@ -150,15 +150,11 @@ impl Webhook {
     ) -> Result<SlackUser, Box<dyn std::error::Error + Send + Sync>> {
         let client = SlackClient::new(SlackClientHyperConnector::new()?);
         let token_value: SlackApiTokenValue = config_env_var("SLACK_TEST_TOKEN")?.into();
-        let token: SlackApiToken = SlackApiToken::new(token_value);
+        let token = SlackApiToken::new(token_value);
         let session = client.open_session(&token);
 
-        let email = EmailAddress(email.to_string());
-
-        let request = SlackApiUsersLookupByEmailRequest::new(email);
-        let slack_user = session.users_lookup_by_email(&request).await;
-
-        let slack_user = slack_user?;
+        let request = SlackApiUsersLookupByEmailRequest::new(EmailAddress(email.to_string()));
+        let slack_user = session.users_lookup_by_email(&request).await?;
 
         Ok(slack_user.user)
     }
@@ -168,8 +164,8 @@ impl Webhook {
         parent: &Option<SlackTs>,
     ) -> Result<SlackTs, Box<dyn std::error::Error + Send + Sync>> {
         let client = SlackClient::new(SlackClientHyperConnector::new()?);
-        let token_value: SlackApiTokenValue = config_env_var("SLACK_TEST_TOKEN")?.into();
-        let token: SlackApiToken = SlackApiToken::new(token_value);
+        let token_value: SlackApiTokenValue = config_env_var("SLACK_APP_TOKEN")?.into();
+        let token = SlackApiToken::new(token_value);
         let session = client.open_session(&token);
 
         let message = self.into_my_slack().await.render_template();
