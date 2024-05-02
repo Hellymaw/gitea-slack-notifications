@@ -1,0 +1,9 @@
+services:
+  server:
+    build: .
+    ports:
+      - 4242:4242
+    environment:
+      - SLACK_CHANNEL=${INTELLI_GITEA_SLACK_CHANNEL}
+      - SLACK_API_TOKEN=${INTELLI_GITEA_SLACK_API_TOKEN}
+      - GITEA_API_TOKEN=${INTELLI_GITEA_GITEA_API_TOKEN}
