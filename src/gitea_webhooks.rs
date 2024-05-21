@@ -42,6 +42,7 @@ pub enum Review {
     #[serde(rename = "pull_request_review_rejected")]
     Rejected { content: String },
     #[serde(rename = "pull_request_review_comment")]
+    #[strum(serialize = "commented on")]
     Comment { content: String },
 }
 
