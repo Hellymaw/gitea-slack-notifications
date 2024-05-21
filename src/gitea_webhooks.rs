@@ -253,6 +253,14 @@ fn render_pr_opened(webhook: &Webhook) -> SlackMessageContent {
         .split_once("/")
         .expect("Invalid full_name field!");
 
+    let body = webhook
+        .pull_request
+        .body
+        .split_inclusive("\n")
+        .map(|line| ">".to_string() + line)
+        .collect::<Vec<String>>()
+        .join("");
+
     SlackMessageContent::new().with_blocks(slack_blocks![
         some_into(SlackHeaderBlock::new(pt!(
             "{} | {}",
@@ -264,7 +272,7 @@ fn render_pr_opened(webhook: &Webhook) -> SlackMessageContent {
             format_pull_request_url(&webhook.pull_request),
             webhook.sender.username
         ))),
-        some_into(SlackSectionBlock::new().with_text(md!(">{}", webhook.pull_request.body)))
+        some_into(SlackSectionBlock::new().with_text(md!("{}", body)))
     ])
 }
 
