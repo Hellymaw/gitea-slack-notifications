@@ -2,6 +2,7 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use slack_morphism::prelude::*;
 use strum::Display;
+use tracing::instrument;
 use url::Url;
 
 #[derive(Deserialize, Debug)]
@@ -108,6 +109,7 @@ impl Webhook {
         self
     }
 
+    #[instrument(err)]
     async fn fetch_gitea_user_email(url: &mut Url, user: &User) -> Result<String, anyhow::Error> {
         let token = config_env_var("GITEA_API_TOKEN")?;
 
@@ -145,6 +147,7 @@ impl Webhook {
         }
     }
 
+    #[instrument(err)]
     async fn fetch_slack_user_from_email(email: &str) -> Result<SlackUser, anyhow::Error> {
         let client = SlackClient::new(SlackClientHyperConnector::new()?);
         let token_value: SlackApiTokenValue = config_env_var("SLACK_API_TOKEN")?.into();
@@ -157,6 +160,7 @@ impl Webhook {
         Ok(slack_user.user)
     }
 
+    #[instrument(err)]
     pub async fn post_slack_message(
         &self,
         parent: &Option<SlackTs>,

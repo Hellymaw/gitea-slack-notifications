@@ -19,3 +19,7 @@ strum = { version = "0.26.2", features = ["derive"] }
 reqwest = { version = "0.12.4", features = ["json"] }
 url = { version = "2.5.0", features = ["serde"] }
 anyhow = "1.0.86"
+tracing = { version = "0.1.40", features = ["attributes"] }
+tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
+tower-http = { version = "0.5.2", features = ["trace"] }
+tracing-appender = "0.2.3"
