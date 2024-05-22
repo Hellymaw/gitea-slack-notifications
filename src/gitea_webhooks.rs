@@ -81,9 +81,7 @@ pub struct MySlackMessage<'a> {
 }
 
 impl Webhook {
-    pub async fn try_deanonymise_emails(
-        mut self,
-    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn try_deanonymise_emails(mut self) -> Self {
         /* Setting the path is the easiest way to keep the scheme and host together but remove the path */
         let mut url = self.pull_request.url.clone();
 
@@ -107,7 +105,7 @@ impl Webhook {
             }
         }
 
-        Ok(self)
+        self
     }
 
     async fn fetch_gitea_user_email(
