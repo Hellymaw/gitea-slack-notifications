@@ -89,17 +89,22 @@ impl Webhook {
 
         let host = url.as_str();
 
-        self.sender.email = Webhook::fetch_gitea_user_email(&host, &self.sender).await?;
+        /* If the email can't be de-anonymised for some reason, keep the anon email */
+        if let Ok(email) = Webhook::fetch_gitea_user_email(&host, &self.sender).await {
+            self.sender.email = email;
+        }
 
-        self.pull_request.user.email =
-            Webhook::fetch_gitea_user_email(&host, &self.pull_request.user).await?;
+        if let Ok(email) = Webhook::fetch_gitea_user_email(&host, &self.pull_request.user).await {
+            self.pull_request.user.email = email;
+        }
 
         if let Action::ReviewRequested {
             ref mut requested_reviewer,
         } = self.action
         {
-            requested_reviewer.email =
-                Webhook::fetch_gitea_user_email(&host, &requested_reviewer).await?;
+            if let Ok(email) = Webhook::fetch_gitea_user_email(&host, &requested_reviewer).await {
+                requested_reviewer.email = email;
+            }
         }
 
         Ok(self)
