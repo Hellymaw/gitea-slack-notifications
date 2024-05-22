@@ -35,7 +35,7 @@ async fn post_handler(State(state): State<SharedState>, Json(payload): Json<serd
 }
 
 async fn post_repo_payload(payload: Webhook, state: SharedState) {
-    let payload = payload.deanonymise_emails().await;
+    let payload = payload.try_deanonymise_emails().await;
     if let Err(e) = payload {
         eprintln!("{}", e);
         return;

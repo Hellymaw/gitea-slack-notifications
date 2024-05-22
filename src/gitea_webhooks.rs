@@ -81,7 +81,7 @@ pub struct MySlackMessage<'a> {
 }
 
 impl Webhook {
-    pub async fn deanonymise_emails(
+    pub async fn try_deanonymise_emails(
         mut self,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         /* Setting the path is the easiest way to keep the scheme and host together but remove the path */
