@@ -29,7 +29,7 @@ pub struct PullRequest {
     pub id: u64,
     pub user: User,
     pub title: String,
-    pub url: String,
+    pub url: Url,
     pub state: PullRequestState,
 }
 
@@ -84,17 +84,16 @@ impl Webhook {
     pub async fn deanonymise_emails(
         mut self,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        let mut url = Url::parse(&self.pull_request.url)?;
-        url.set_path("");
-
-        let host = url.as_str();
+        /* Setting the path is the easiest way to keep the scheme and host together but remove the path */
+        let mut url = self.pull_request.url.clone();
 
         /* If the email can't be de-anonymised for some reason, keep the anon email */
-        if let Ok(email) = Webhook::fetch_gitea_user_email(&host, &self.sender).await {
+        if let Ok(email) = Webhook::fetch_gitea_user_email(&mut url, &self.sender).await {
             self.sender.email = email;
         }
 
-        if let Ok(email) = Webhook::fetch_gitea_user_email(&host, &self.pull_request.user).await {
+        if let Ok(email) = Webhook::fetch_gitea_user_email(&mut url, &self.pull_request.user).await
+        {
             self.pull_request.user.email = email;
         }
 
@@ -102,7 +101,8 @@ impl Webhook {
             ref mut requested_reviewer,
         } = self.action
         {
-            if let Ok(email) = Webhook::fetch_gitea_user_email(&host, &requested_reviewer).await {
+            if let Ok(email) = Webhook::fetch_gitea_user_email(&mut url, &requested_reviewer).await
+            {
                 requested_reviewer.email = email;
             }
         }
@@ -111,15 +111,15 @@ impl Webhook {
     }
 
     async fn fetch_gitea_user_email(
-        host: &str,
+        url: &mut Url,
         user: &User,
     ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
         let token = config_env_var("GITEA_API_TOKEN")?;
 
-        let url = format!("{}api/v1/users/{}", host, user.username);
+        url.set_path(format!("api/v1/users/{}", user.username).as_str());
 
         let res = Client::new()
-            .get(url)
+            .get(url.as_str())
             .header("Authorization", "token ".to_string() + &token.to_owned())
             .send()
             .await?

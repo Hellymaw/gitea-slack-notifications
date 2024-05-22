@@ -47,7 +47,7 @@ async fn post_repo_payload(payload: Webhook, state: SharedState) {
         let state_data = state.lock().unwrap();
         state_data
             .slack_message_cache
-            .get(&payload.pull_request.url)
+            .get(&payload.pull_request.url.as_str().to_string())
             .map(|ts| ts.clone())
     };
 
@@ -57,7 +57,7 @@ async fn post_repo_payload(payload: Webhook, state: SharedState) {
             let mut state_data = state.lock().unwrap();
             state_data
                 .slack_message_cache
-                .entry(payload.pull_request.url.clone())
+                .entry(payload.pull_request.url.as_str().to_string())
                 .or_insert(response);
         }
     }
