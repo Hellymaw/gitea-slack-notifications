@@ -108,10 +108,7 @@ impl Webhook {
         self
     }
 
-    async fn fetch_gitea_user_email(
-        url: &mut Url,
-        user: &User,
-    ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+    async fn fetch_gitea_user_email(url: &mut Url, user: &User) -> Result<String, anyhow::Error> {
         let token = config_env_var("GITEA_API_TOKEN")?;
 
         url.set_path(format!("api/v1/users/{}", user.username).as_str());
@@ -148,9 +145,7 @@ impl Webhook {
         }
     }
 
-    async fn fetch_slack_user_from_email(
-        email: &str,
-    ) -> Result<SlackUser, Box<dyn std::error::Error + Send + Sync>> {
+    async fn fetch_slack_user_from_email(email: &str) -> Result<SlackUser, anyhow::Error> {
         let client = SlackClient::new(SlackClientHyperConnector::new()?);
         let token_value: SlackApiTokenValue = config_env_var("SLACK_API_TOKEN")?.into();
         let token = SlackApiToken::new(token_value);
@@ -165,7 +160,7 @@ impl Webhook {
     pub async fn post_slack_message(
         &self,
         parent: &Option<SlackTs>,
-    ) -> Result<SlackTs, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<SlackTs, anyhow::Error> {
         let client = SlackClient::new(SlackClientHyperConnector::new()?);
         let token_value: SlackApiTokenValue = config_env_var("SLACK_API_TOKEN")?.into();
         let token = SlackApiToken::new(token_value);
@@ -279,6 +274,6 @@ fn render_pr_opened(webhook: &Webhook) -> SlackMessageContent {
     ])
 }
 
-fn config_env_var(name: &str) -> Result<String, String> {
-    std::env::var(name).map_err(|e| format!("{}: {}", name, e))
+fn config_env_var(name: &str) -> Result<String, anyhow::Error> {
+    Ok(std::env::var(name)?)
 }
