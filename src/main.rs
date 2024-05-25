@@ -11,14 +11,17 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 pub mod gitea_webhooks;
 
+const MAX_LOG_FILES: usize = 48;
+
 #[tokio::main]
 async fn main() {
     let log_dir = std::env::var("LOG_DIR").unwrap_or("./logs".to_string());
+    let log_suffix = std::env::var("LOG_SUFFIX").unwrap_or("gitea_notifs.log".to_string());
 
     let file_appender = tracing_appender::rolling::Builder::new()
         .rotation(tracing_appender::rolling::Rotation::HOURLY)
-        .filename_suffix("gitea_notifs.log")
-        .max_log_files(48)
+        .filename_suffix(&log_suffix)
+        .max_log_files(MAX_LOG_FILES)
         .build(log_dir)
         .expect("Failed to initialise rolling file appender");
 
@@ -38,7 +41,9 @@ async fn main() {
         .route("/", post(post_handler))
         .layer(TraceLayer::new_for_http())
         .layer(Extension(db_pool));
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:4242").await.unwrap();
+
+    let bind_addr = std::env::var("BIND_ADDRESS").expect("A binding address is required");
+    let listener = tokio::net::TcpListener::bind(bind_addr).await.unwrap();
 
     axum::serve(listener, app).await.unwrap();
 }
