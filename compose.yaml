@@ -1,9 +1,23 @@
 services:
   server:
     build: .
+    depends_on:
+      - db
     ports:
       - 4242:4242
     environment:
-      - SLACK_CHANNEL=${INTELLI_GITEA_SLACK_CHANNEL}
-      - SLACK_API_TOKEN=${INTELLI_GITEA_SLACK_API_TOKEN}
-      - GITEA_API_TOKEN=${INTELLI_GITEA_GITEA_API_TOKEN}
+      - BIND_ADDRESS=${BIND_ADDRESS}
+      - SLACK_CHANNEL=${SLACK_CHANNEL}
+      - SLACK_API_TOKEN=${SLACK_API_TOKEN}
+      - GITEA_API_TOKEN=${GITEA_API_TOKEN}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB}
+
+  db:
+    image: postgres
+    shm_size: 128mb
+    volumes:
+      - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    environment:
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB}

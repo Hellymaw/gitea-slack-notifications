@@ -33,9 +33,9 @@ async fn main() {
         .with(tracing_subscriber::fmt::layer().with_writer(non_blocking))
         .init();
 
-    let db_conn_string =
-        std::env::var("DB_CONNECTION_STRING").expect("A database connection string is required");
-    let db_pool = PgPool::connect(&db_conn_string).await.unwrap();
+    let db_pool = PgPool::connect(&construct_db_connection_string())
+        .await
+        .unwrap();
 
     let app = Router::new()
         .route("/", post(post_handler))
@@ -98,4 +98,11 @@ async fn post_repo_payload(payload: Webhook, db: Extension<PgPool>) {
             }
         }
     }
+}
+
+fn construct_db_connection_string() -> String {
+    let pg_password = std::env::var("POSTGRES_PASSWORD").expect("This is a required env var");
+    let pg_db = std::env::var("POSTGRES_DB").expect("This is a required env var");
+
+    format!("postgres://postgres:{pg_password}@db/{pg_db}")
 }
