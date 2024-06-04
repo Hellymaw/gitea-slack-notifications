@@ -1,3 +1,4 @@
+use anyhow::Context;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use slack_morphism::prelude::*;
@@ -24,12 +25,18 @@ pub struct Repository {
 }
 
 #[derive(Deserialize, Debug)]
+pub struct Comment {
+    pub body: String,
+}
+
+#[derive(Deserialize, Debug)]
 pub struct PullRequest {
     pub body: String,
     pub comments: u64,
     pub id: u64,
     pub user: User,
     pub title: String,
+    #[serde(rename = "html_url")]
     pub url: Url,
     pub state: PullRequestState,
 }
@@ -56,6 +63,7 @@ pub enum Action {
     Reopened,
     Edited,
     Merged,
+    Created { comment: Comment },
     Reviewed { review: Review },
     ReviewRequested { requested_reviewer: User },
 }
@@ -64,6 +72,7 @@ pub enum Action {
 pub struct Webhook {
     #[serde(flatten)]
     pub action: Action,
+    #[serde(alias = "issue")]
     pub pull_request: PullRequest,
     pub sender: User,
     pub repository: Repository,
@@ -78,7 +87,7 @@ pub struct OutgoingWebhook {
 
 pub struct MySlackMessage<'a> {
     pub webhook: &'a Webhook,
-    pub slack_user: Option<SlackUser>,
+    pub slack_user: Vec<SlackUser>,
 }
 
 impl Webhook {
@@ -87,11 +96,12 @@ impl Webhook {
         let mut url = self.pull_request.url.clone();
 
         /* If the email can't be de-anonymised for some reason, keep the anon email */
-        if let Ok(email) = Webhook::fetch_gitea_user_email(&mut url, &self.sender).await {
+        if let Ok(email) = Webhook::fetch_gitea_user_email(&mut url, &self.sender.username).await {
             self.sender.email = email;
         }
 
-        if let Ok(email) = Webhook::fetch_gitea_user_email(&mut url, &self.pull_request.user).await
+        if let Ok(email) =
+            Webhook::fetch_gitea_user_email(&mut url, &self.pull_request.user.username).await
         {
             self.pull_request.user.email = email;
         }
@@ -100,7 +110,8 @@ impl Webhook {
             ref mut requested_reviewer,
         } = self.action
         {
-            if let Ok(email) = Webhook::fetch_gitea_user_email(&mut url, &requested_reviewer).await
+            if let Ok(email) =
+                Webhook::fetch_gitea_user_email(&mut url, &requested_reviewer.username).await
             {
                 requested_reviewer.email = email;
             }
@@ -110,10 +121,13 @@ impl Webhook {
     }
 
     #[instrument(err)]
-    async fn fetch_gitea_user_email(url: &mut Url, user: &User) -> Result<String, anyhow::Error> {
+    async fn fetch_gitea_user_email(
+        url: &mut Url,
+        username: &str,
+    ) -> Result<String, anyhow::Error> {
         let token = config_env_var("GITEA_API_TOKEN")?;
 
-        url.set_path(format!("api/v1/users/{}", user.username).as_str());
+        url.set_path(format!("api/v1/users/{}", username).as_str());
 
         let res = Client::new()
             .get(url.as_str())
@@ -126,25 +140,57 @@ impl Webhook {
         Ok(res.email)
     }
 
-    async fn into_my_slack(&self) -> MySlackMessage {
-        let email = match self.action {
+    async fn into_my_slack(&self) -> Option<MySlackMessage> {
+        let emails = match self.action {
             Action::ReviewRequested {
                 ref requested_reviewer,
-            } => Some(&requested_reviewer.email),
-            Action::Reviewed { review: _ } => Some(&self.pull_request.user.email),
-            _ => None,
+            } => vec![requested_reviewer.email.clone()],
+            Action::Reviewed { review: _ } => vec![self.pull_request.user.email.clone()],
+            Action::Created { ref comment } => {
+                Webhook::parse_comment_for_mention(&self.pull_request.url, comment).await
+            }
+            _ => Vec::new(),
         };
 
-        let slack_user = if let Some(email) = email {
-            Webhook::fetch_slack_user_from_email(email).await.ok()
-        } else {
-            None
-        };
+        let mut slack_users = Vec::<Option<SlackUser>>::new();
+        for email in emails {
+            slack_users.push(Webhook::fetch_slack_user_from_email(&email).await.ok());
+        }
 
-        MySlackMessage {
+        let slack_user: Vec<SlackUser> = slack_users.into_iter().filter_map(|x| x).collect();
+
+        if let Action::Created { comment: _ } = self.action {
+            if slack_user.len() == 0 {
+                return None;
+            }
+        }
+
+        Some(MySlackMessage {
             webhook: self,
             slack_user,
+        })
+    }
+
+    async fn parse_comment_for_mention(url: &Url, comment: &Comment) -> Vec<String> {
+        let users = comment.body.split_whitespace().filter_map(|x| {
+            if x.starts_with("@") {
+                Some(x.trim_start_matches("@"))
+            } else {
+                None
+            }
+        });
+
+        let mut mention_emails = Vec::<String>::new();
+        for user in users {
+            if let Some(email) = Webhook::fetch_gitea_user_email(&mut url.clone(), user)
+                .await
+                .ok()
+            {
+                mention_emails.push(email);
+            }
         }
+
+        mention_emails
     }
 
     #[instrument(err)]
@@ -170,7 +216,11 @@ impl Webhook {
         let token = SlackApiToken::new(token_value);
         let session = client.open_session(&token);
 
-        let message = self.into_my_slack().await.render_template();
+        let message = self
+            .into_my_slack()
+            .await
+            .context("Unable to convert")?
+            .render_template();
 
         let channel = config_env_var("SLACK_CHANNEL")?;
 
@@ -195,6 +245,7 @@ impl SlackMessageTemplate for MySlackMessage<'_> {
             Action::ReviewRequested { requested_reviewer } => {
                 render_review_requested(self, &requested_reviewer)
             }
+            Action::Created { comment: _ } => render_comment(self),
             _ => render_basic_action(&self.webhook),
         }
     }
@@ -214,8 +265,22 @@ fn render_basic_action(webhook: &Webhook) -> SlackMessageContent {
     )])
 }
 
+fn render_comment(slack_message: &MySlackMessage) -> SlackMessageContent {
+    let mentions = slack_message
+        .slack_user
+        .clone()
+        .into_iter()
+        .map(|x| x.id.to_slack_format())
+        .collect::<Vec<String>>()
+        .join(" ");
+
+    SlackMessageContent::new().with_blocks(slack_blocks![some_into(
+        SlackSectionBlock::new().with_text(md!("{}, you were mentioned in a comment", mentions))
+    )])
+}
+
 fn render_reviewed(slack_message: &MySlackMessage, review: &Review) -> SlackMessageContent {
-    let user = if let Some(user) = &slack_message.slack_user {
+    let user = if let Some(user) = slack_message.slack_user.first() {
         user.id.to_slack_format()
     } else {
         slack_message.webhook.pull_request.user.username.to_string()
@@ -232,7 +297,7 @@ fn render_reviewed(slack_message: &MySlackMessage, review: &Review) -> SlackMess
 }
 
 fn render_review_requested(slack_message: &MySlackMessage, reviewer: &User) -> SlackMessageContent {
-    let user = if let Some(user) = &slack_message.slack_user {
+    let user = if let Some(user) = slack_message.slack_user.first() {
         user.id.to_slack_format()
     } else {
         reviewer.username.to_string()
