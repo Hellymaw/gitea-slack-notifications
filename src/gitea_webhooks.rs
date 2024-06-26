@@ -61,7 +61,6 @@ pub enum Action {
     Opened,
     Closed,
     Reopened,
-    Edited,
     Merged,
     Created { comment: Comment },
     Reviewed { review: Review },
