@@ -171,13 +171,25 @@ impl Webhook {
     }
 
     async fn parse_comment_for_mention(url: &Url, comment: &Comment) -> Vec<String> {
-        let users = comment.body.split_whitespace().filter_map(|x| {
-            if x.starts_with("@") {
-                Some(x.trim_start_matches("@"))
-            } else {
-                None
-            }
-        });
+        let users = comment
+            .body
+            .lines()
+            .filter_map(|line| {
+                let line = line.trim_start();
+                if line.starts_with(">") {
+                    None
+                } else {
+                    Some(line)
+                }
+            })
+            .flat_map(|x| x.split_whitespace())
+            .filter_map(|x| {
+                if x.starts_with("@") {
+                    Some(x.trim_start_matches("@"))
+                } else {
+                    None
+                }
+            });
 
         let mut mention_emails = Vec::<String>::new();
         for user in users {
