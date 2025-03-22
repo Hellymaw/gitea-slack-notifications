@@ -1,5 +1,4 @@
-use std::sync::Arc;
-
+use app_state::AppState;
 use axum::Extension;
 use axum::{extract::Json, routing::post, Router};
 use gitea::GiteaResourcePool;
@@ -11,6 +10,7 @@ use tracing;
 use tracing_appender;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
+pub mod app_state;
 pub mod gitea;
 pub mod slack;
 pub mod user_lookup;
@@ -41,13 +41,14 @@ async fn main() {
         .await
         .unwrap();
 
-    let gitea_pool = Arc::new(GiteaResourcePool::new().unwrap());
+    let gitea_pool = GiteaResourcePool::new().unwrap();
+
+    let app_state = AppState::new(gitea_pool, db_pool);
 
     let app = Router::new()
         .route("/", post(post_handler))
         .layer(TraceLayer::new_for_http())
-        .layer(Extension(db_pool))
-        .layer(Extension(gitea_pool));
+        .layer(Extension(app_state));
 
     let bind_addr = std::env::var("BIND_ADDRESS").expect("A binding address is required");
     let listener = tokio::net::TcpListener::bind(bind_addr).await.unwrap();
@@ -55,29 +56,21 @@ async fn main() {
     axum::serve(listener, app).await.unwrap();
 }
 
-async fn post_handler(
-    db: Extension<PgPool>,
-    gp: Extension<Arc<GiteaResourcePool>>,
-    Json(payload): Json<serde_json::Value>,
-) {
+async fn post_handler(Extension(app): Extension<AppState>, Json(payload): Json<serde_json::Value>) {
     tracing::debug!(%payload);
 
     match serde_json::from_value::<gitea::webhook::Webhook>(payload) {
-        Ok(webhook) => post_repo_payload(webhook, db, gp).await,
+        Ok(webhook) => post_repo_payload(webhook, app).await,
         Err(x) => tracing::error!("Error decoding JSON payload into Webhook \"{}\"", x),
     }
 }
 
-async fn post_repo_payload(
-    payload: gitea::webhook::Webhook,
-    db: Extension<PgPool>,
-    gp: Extension<Arc<GiteaResourcePool>>,
-) {
+async fn post_repo_payload(payload: gitea::webhook::Webhook, app: AppState) {
     let ts = {
         let rows: Result<Option<(String,)>, sqlx::Error> =
             sqlx::query_as("SELECT ts FROM threads WHERE url = $1")
                 .bind(payload.pull_request.url.to_string())
-                .fetch_optional(&*db)
+                .fetch_optional(app.database())
                 .await;
 
         match rows {
@@ -94,7 +87,7 @@ async fn post_repo_payload(
 
     // TODO gross, need to fixup
     let slack_message = if let Ok(Some(message)) =
-        slack::message::MySlackMessage::from_gitea_webhook(payload, &*db, &*gp).await
+        slack::message::MySlackMessage::from_gitea_webhook(payload, &app).await
     {
         message
     } else {
@@ -107,7 +100,7 @@ async fn post_repo_payload(
             let resp = sqlx::query("INSERT INTO threads VALUES ($1, $2)")
                 .bind(slack_message.webhook.pull_request.url.as_str())
                 .bind(&response.0)
-                .execute(&*db)
+                .execute(app.database())
                 .await;
 
             if let Err(x) = resp {

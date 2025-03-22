@@ -4,6 +4,7 @@ use tracing;
 use tracing::info;
 use tracing::instrument;
 
+use crate::app_state::AppState;
 use crate::gitea;
 use crate::gitea::GiteaResourcePool;
 use crate::slack;
@@ -93,20 +94,20 @@ impl CachedUser {
         ))
     }
 
-    #[instrument(skip(db))]
+    #[instrument(skip(app))]
     pub async fn fetch(
-        db: &PgPool,
-        gp: &GiteaResourcePool,
+        app: &AppState,
         url: url::Url,
         gitea_username: &str,
     ) -> Result<Self, anyhow::Error> {
-        let user = if let Some(user) = Self::fetch_from_database(db, gitea_username).await? {
-            user
-        } else {
-            let user = Self::fetch_from_external(gp, url, gitea_username).await?;
-            let _ = user.insert_to_database(db).await;
-            user
-        };
+        let user =
+            if let Some(user) = Self::fetch_from_database(app.database(), gitea_username).await? {
+                user
+            } else {
+                let user = Self::fetch_from_external(app.gitea(), url, gitea_username).await?;
+                let _ = user.insert_to_database(app.database()).await;
+                user
+            };
 
         info!("Fetched user: {user:?}");
         Ok(user)
