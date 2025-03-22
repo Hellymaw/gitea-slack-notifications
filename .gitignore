@@ -21,3 +21,10 @@ Cargo.lock
 logs/
 
 .env
+
+.devenv*
+devenv.local.nix
+
+.direnv
+
+.pre-commit-config.yaml
