@@ -1,6 +1,5 @@
 use axum::Extension;
 use axum::{extract::Json, routing::post, Router};
-use gitea_webhooks::Webhook;
 use serde_json;
 use slack_morphism::prelude::*;
 use sqlx::postgres::PgPool;
@@ -10,6 +9,9 @@ use tracing_appender;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 pub mod gitea_webhooks;
+pub mod user_lookup;
+pub mod gitea;
+pub mod slack;
 
 const MAX_LOG_FILES: usize = 48;
 
@@ -19,7 +21,7 @@ async fn main() {
     let log_suffix = std::env::var("LOG_SUFFIX").unwrap_or("gitea_notifs.log".to_string());
 
     let file_appender = tracing_appender::rolling::Builder::new()
-        .rotation(tracing_appender::rolling::Rotation::HOURLY)
+        .rotation(tracing_appender::rolling::Rotation::DAILY)
         .filename_suffix(&log_suffix)
         .max_log_files(MAX_LOG_FILES)
         .build(log_dir)
@@ -51,15 +53,13 @@ async fn main() {
 async fn post_handler(db: Extension<PgPool>, Json(payload): Json<serde_json::Value>) {
     tracing::debug!(%payload);
 
-    match serde_json::from_value::<Webhook>(payload) {
+    match serde_json::from_value::<gitea::webhook::Webhook>(payload) {
         Ok(webhook) => post_repo_payload(webhook, db).await,
         Err(x) => tracing::error!("Error decoding JSON payload into Webhook \"{}\"", x),
     }
 }
 
-async fn post_repo_payload(payload: Webhook, db: Extension<PgPool>) {
-    let payload = payload.try_deanonymise_emails().await;
-
+async fn post_repo_payload(payload: gitea::webhook::Webhook, db: Extension<PgPool>) {
     let ts = {
         let rows: Result<Option<(String,)>, sqlx::Error> =
             sqlx::query_as("SELECT ts FROM threads WHERE url = $1")
@@ -79,11 +79,18 @@ async fn post_repo_payload(payload: Webhook, db: Extension<PgPool>) {
         }
     };
 
-    let response = payload.post_slack_message(&ts).await;
+    // TODO gross, need to fixup
+    let slack_message = if let Ok(Some(message)) = slack::message::MySlackMessage::from_gitea_webhook(payload, &*db).await {
+        message
+    } else {
+        return;
+    };
+
+    let response = slack_message.post(&ts).await;
     if ts.is_none() {
         if let Ok(response) = response {
             let resp = sqlx::query("INSERT INTO threads VALUES ($1, $2)")
-                .bind(payload.pull_request.url.as_str())
+                .bind(slack_message.webhook.pull_request.url.as_str())
                 .bind(&response.0)
                 .execute(&*db)
                 .await;
