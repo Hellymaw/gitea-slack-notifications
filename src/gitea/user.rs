@@ -1,7 +1,7 @@
-use reqwest::Client;
 use serde::Deserialize;
 use tracing::{self, instrument};
-use url::Url;
+
+use super::GiteaResourcePool;
 
 #[derive(Deserialize, Debug)]
 pub struct User {
@@ -22,14 +22,19 @@ impl User {
         &self.username
     }
 
-    // TODO: Change to better err type
-    #[instrument]
-    pub async fn fetch_from_username(url: &mut Url, username: &str) -> Result<User, anyhow::Error> {
-        // TODO change from this path formatting
-        url.set_path(format!("api/v1/users/{}", username).as_str());
+    #[instrument(skip(gp))]
+    pub async fn fetch_from_username(
+        gp: &GiteaResourcePool,
+        mut url: url::Url,
+        username: &str,
+    ) -> Result<User, anyhow::Error> {
+        const USERS_API_URI: &str = "api/v1/users/";
 
-        let res = Client::new().get(url.as_str()).send().await;
+        // Allows the single server to work for multiple Gitea hosts without configuration
+        url.set_path(USERS_API_URI);
+        let url = url.join(username)?;
 
+        let res = gp.client().get(url).send().await;
         if let Err(e) = res {
             tracing::error!(%e);
             return Err(e.into());

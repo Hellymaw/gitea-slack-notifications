@@ -1,5 +1,8 @@
+use std::sync::Arc;
+
 use axum::Extension;
 use axum::{extract::Json, routing::post, Router};
+use gitea::GiteaResourcePool;
 use serde_json;
 use slack_morphism::prelude::*;
 use sqlx::postgres::PgPool;
@@ -38,10 +41,13 @@ async fn main() {
         .await
         .unwrap();
 
+    let gitea_pool = Arc::new(GiteaResourcePool::new().unwrap());
+
     let app = Router::new()
         .route("/", post(post_handler))
         .layer(TraceLayer::new_for_http())
-        .layer(Extension(db_pool));
+        .layer(Extension(db_pool))
+        .layer(Extension(gitea_pool));
 
     let bind_addr = std::env::var("BIND_ADDRESS").expect("A binding address is required");
     let listener = tokio::net::TcpListener::bind(bind_addr).await.unwrap();
@@ -49,16 +55,24 @@ async fn main() {
     axum::serve(listener, app).await.unwrap();
 }
 
-async fn post_handler(db: Extension<PgPool>, Json(payload): Json<serde_json::Value>) {
+async fn post_handler(
+    db: Extension<PgPool>,
+    gp: Extension<Arc<GiteaResourcePool>>,
+    Json(payload): Json<serde_json::Value>,
+) {
     tracing::debug!(%payload);
 
     match serde_json::from_value::<gitea::webhook::Webhook>(payload) {
-        Ok(webhook) => post_repo_payload(webhook, db).await,
+        Ok(webhook) => post_repo_payload(webhook, db, gp).await,
         Err(x) => tracing::error!("Error decoding JSON payload into Webhook \"{}\"", x),
     }
 }
 
-async fn post_repo_payload(payload: gitea::webhook::Webhook, db: Extension<PgPool>) {
+async fn post_repo_payload(
+    payload: gitea::webhook::Webhook,
+    db: Extension<PgPool>,
+    gp: Extension<Arc<GiteaResourcePool>>,
+) {
     let ts = {
         let rows: Result<Option<(String,)>, sqlx::Error> =
             sqlx::query_as("SELECT ts FROM threads WHERE url = $1")
@@ -80,7 +94,7 @@ async fn post_repo_payload(payload: gitea::webhook::Webhook, db: Extension<PgPoo
 
     // TODO gross, need to fixup
     let slack_message = if let Ok(Some(message)) =
-        slack::message::MySlackMessage::from_gitea_webhook(payload, &*db).await
+        slack::message::MySlackMessage::from_gitea_webhook(payload, &*db, &*gp).await
     {
         message
     } else {

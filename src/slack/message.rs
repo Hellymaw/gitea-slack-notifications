@@ -2,8 +2,8 @@ use serde::Serialize;
 use slack_morphism::prelude::*;
 use sqlx::PgPool;
 
-use crate::gitea;
 use crate::gitea::webhook::*;
+use crate::gitea::{self, GiteaResourcePool};
 use crate::user_lookup::CachedUser;
 
 #[derive(Serialize, Debug)]
@@ -22,10 +22,11 @@ impl MySlackMessage {
     pub async fn from_gitea_webhook(
         webhook: Webhook,
         db: &PgPool,
+        gp: &GiteaResourcePool,
     ) -> Result<Option<Self>, anyhow::Error> {
         let usernames = webhook
             .usernames_to_mention()
-            .map(|x| CachedUser::fetch(db, x));
+            .map(|x| CachedUser::fetch(db, gp, webhook.pull_request.url.clone(), x));
 
         let mut users: Vec<SlackUserId> = Vec::new();
         for username in futures::future::join_all(usernames).await {

@@ -3,9 +3,9 @@ use sqlx::{postgres::PgQueryResult, PgPool};
 use tracing;
 use tracing::info;
 use tracing::instrument;
-use url::Url;
 
 use crate::gitea;
+use crate::gitea::GiteaResourcePool;
 use crate::slack;
 
 #[derive(Debug, sqlx::FromRow)]
@@ -79,11 +79,12 @@ impl CachedUser {
     }
 
     #[instrument]
-    pub async fn fetch_from_external(gitea_username: &str) -> Result<Self, anyhow::Error> {
-        // TODO: Pass this in somehow
-        let mut url = Url::parse("http://test.com")?;
-
-        let gitea_user = gitea::user::User::fetch_from_username(&mut url, gitea_username).await?;
+    pub async fn fetch_from_external(
+        gp: &GiteaResourcePool,
+        url: url::Url,
+        gitea_username: &str,
+    ) -> Result<Self, anyhow::Error> {
+        let gitea_user = gitea::user::User::fetch_from_username(gp, url, gitea_username).await?;
         let slack_uid = slack::user::fetch_user_from_email(gitea_user.email().to_owned()).await?;
 
         Ok(CachedUser::new(
@@ -93,11 +94,16 @@ impl CachedUser {
     }
 
     #[instrument(skip(db))]
-    pub async fn fetch(db: &PgPool, gitea_tag: &str) -> Result<Self, anyhow::Error> {
-        let user = if let Some(user) = Self::fetch_from_database(db, gitea_tag).await? {
+    pub async fn fetch(
+        db: &PgPool,
+        gp: &GiteaResourcePool,
+        url: url::Url,
+        gitea_username: &str,
+    ) -> Result<Self, anyhow::Error> {
+        let user = if let Some(user) = Self::fetch_from_database(db, gitea_username).await? {
             user
         } else {
-            let user = Self::fetch_from_external(gitea_tag).await?;
+            let user = Self::fetch_from_external(gp, url, gitea_username).await?;
             let _ = user.insert_to_database(db).await;
             user
         };
