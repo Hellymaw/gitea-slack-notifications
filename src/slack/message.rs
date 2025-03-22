@@ -1,5 +1,8 @@
+use std::sync::LazyLock;
+
 use serde::Serialize;
 use slack_morphism::prelude::*;
+use tracing::instrument;
 
 use crate::app_state::AppState;
 use crate::gitea;
@@ -13,6 +16,7 @@ pub struct OutgoingWebhook {
     pub body: String,
 }
 
+#[derive(Debug)]
 pub struct MySlackMessage {
     pub webhook: Webhook,
     pub slack_user: Vec<SlackUserId>,
@@ -45,27 +49,30 @@ impl MySlackMessage {
         }))
     }
 
-    pub async fn post(&self, parent: &Option<SlackTs>) -> Result<SlackTs, anyhow::Error> {
-        // TODO remove this
-        let client = SlackClient::new(SlackClientHyperConnector::new()?);
-        let token_value: SlackApiTokenValue = config_env_var("SLACK_API_TOKEN")?.into();
-        let token = SlackApiToken::new(token_value);
-        let session = client.open_session(&token);
+    #[instrument]
+    pub async fn post(&self, parent: Option<SlackTs>) -> Result<SlackTs, anyhow::Error> {
+        static SLACK_CHANNEL: LazyLock<SlackChannelId> =
+            LazyLock::new(|| std::env::var("SLACK_CHANNEL").unwrap().into());
 
-        // TODO remove this, or lookup
-        let channel = config_env_var("SLACK_CHANNEL")?;
+        let client = SlackClient::new(
+            SlackClientHyperConnector::new()?.with_rate_control(SlackApiRateControlConfig::new()),
+        );
+        let session = client.open_session(&super::TOKEN);
 
         let message = self.render_template();
-        let post_chat_req = if let Some(thread_ts) = parent {
-            SlackApiChatPostMessageRequest::new(channel.into(), message)
-                .with_thread_ts(thread_ts.clone())
+        let req = SlackApiChatPostMessageRequest::new(SLACK_CHANNEL.clone(), message);
+        let req = if let Some(thread_ts) = parent {
+            req.with_thread_ts(thread_ts)
         } else {
-            SlackApiChatPostMessageRequest::new(channel.into(), message)
+            req
         };
 
-        let post_chat_resp = session.chat_post_message(&post_chat_req).await?;
+        let resp = session.chat_post_message(&req).await;
+        if let Err(ref e) = resp {
+            tracing::error!(%e);
+        }
 
-        Ok(post_chat_resp.ts)
+        Ok(resp?.ts)
     }
 
     fn render_comment(&self) -> SlackMessageContent {
@@ -175,9 +182,4 @@ impl SlackMessageTemplate for MySlackMessage {
 
 fn format_pull_request_url(pull_request: &PullRequest) -> String {
     format!("<{}|{}>", pull_request.url, pull_request.title)
-}
-
-// TODO remove this
-fn config_env_var(name: &str) -> Result<String, anyhow::Error> {
-    Ok(std::env::var(name)?)
 }

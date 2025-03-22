@@ -94,23 +94,27 @@ async fn post_repo_payload(payload: gitea::webhook::Webhook, app: AppState) {
         return;
     };
 
-    let response = slack_message.post(&ts).await;
-    if ts.is_none() {
-        if let Ok(response) = response {
-            let resp = sqlx::query("INSERT INTO threads VALUES ($1, $2)")
-                .bind(slack_message.webhook.pull_request.url.as_str())
-                .bind(&response.0)
-                .execute(app.database())
-                .await;
+    let new_thread = ts.is_none();
+    let response = if let Ok(response) = slack_message.post(ts).await {
+        response
+    } else {
+        return;
+    };
 
-            if let Err(x) = resp {
-                tracing::error!(
-                    "Error attempting to add a new timestamp to the DB: \"{}\"",
-                    x
-                )
-            } else {
-                tracing::info!("Top level Slack Thread created");
-            }
+    if new_thread {
+        let resp = sqlx::query("INSERT INTO threads VALUES ($1, $2)")
+            .bind(slack_message.webhook.pull_request.url.as_str())
+            .bind(&response.0)
+            .execute(app.database())
+            .await;
+
+        if let Err(x) = resp {
+            tracing::error!(
+                "Error attempting to add a new timestamp to the DB: \"{}\"",
+                x
+            )
+        } else {
+            tracing::info!("Top level Slack Thread created");
         }
     }
 }
