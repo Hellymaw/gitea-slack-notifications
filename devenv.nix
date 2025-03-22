@@ -14,6 +14,7 @@ rec {
     pkgs.git
     pkgs.docker
     pkgs.openssl
+    pkgs.rustfmt
   ];
 
   languages = {

@@ -18,24 +18,18 @@ pub struct MySlackMessage {
     pub slack_user: Vec<SlackUserId>,
 }
 
-
 impl MySlackMessage {
-    pub async fn from_gitea_webhook(webhook: Webhook, db: &PgPool) -> Result<Option<Self>, Box<dyn std::error::Error>> {
-        // NOTE clones likely not required, could be refs
-        let usernames = match webhook.action {
-            Action::ReviewRequested {
-                ref requested_reviewer,
-            } => vec![requested_reviewer.username().to_string()],
-            Action::Reviewed { review: _ } => vec![webhook.pull_request.user.username().to_string()],
-            Action::Created { ref comment } => {
-                comment.parse_mentions().await
-            }
-            _ => Vec::new(),
-        };
-    
-        let mut users = Vec::<SlackUserId>::new();
-        for username in usernames {
-            users.push(CachedUser::fetch(db, &username).await?.slack_uid().to_owned());
+    pub async fn from_gitea_webhook(
+        webhook: Webhook,
+        db: &PgPool,
+    ) -> Result<Option<Self>, anyhow::Error> {
+        let usernames = webhook
+            .usernames_to_mention()
+            .map(|x| CachedUser::fetch(db, x));
+
+        let mut users: Vec<SlackUserId> = Vec::new();
+        for username in futures::future::join_all(usernames).await {
+            users.push(username?.slack_uid().to_owned());
         }
 
         // If the webhook is for a comment but no-one was mentioned, there's no reason to send a message
@@ -44,17 +38,14 @@ impl MySlackMessage {
                 return Ok(None);
             }
         }
-    
+
         Ok(Some(Self {
             webhook,
             slack_user: users,
         }))
-    }    
+    }
 
-    pub async fn post(
-        &self,
-        parent: &Option<SlackTs>,
-    ) -> Result<SlackTs, anyhow::Error> {
+    pub async fn post(&self, parent: &Option<SlackTs>) -> Result<SlackTs, anyhow::Error> {
         // TODO remove this
         let client = SlackClient::new(SlackClientHyperConnector::new()?);
         let token_value: SlackApiTokenValue = config_env_var("SLACK_API_TOKEN")?.into();
@@ -63,7 +54,7 @@ impl MySlackMessage {
 
         // TODO remove this, or lookup
         let channel = config_env_var("SLACK_CHANNEL")?;
-        
+
         let message = self.render_template();
         let post_chat_req = if let Some(thread_ts) = parent {
             SlackApiChatPostMessageRequest::new(channel.into(), message)
@@ -86,7 +77,8 @@ impl MySlackMessage {
             .join(" ");
 
         SlackMessageContent::new().with_blocks(slack_blocks![some_into(
-            SlackSectionBlock::new().with_text(md!("{}, you were mentioned in a comment", mentions))
+            SlackSectionBlock::new()
+                .with_text(md!("{}, you were mentioned in a comment", mentions))
         )])
     }
 
@@ -125,20 +117,22 @@ impl MySlackMessage {
     }
 
     fn render_pr_opened(&self) -> SlackMessageContent {
-        let repo_name = self.webhook
+        let repo_name = self
+            .webhook
             .repository
             .full_name
             .split_once("/")
             .expect("Invalid full_name field!");
-    
-        let body = self.webhook
+
+        let body = self
+            .webhook
             .pull_request
             .body
             .split_inclusive("\n")
             .map(|line| ">".to_string() + line)
             .collect::<Vec<String>>()
             .join("");
-    
+
         SlackMessageContent::new().with_blocks(slack_blocks![
             some_into(SlackHeaderBlock::new(pt!(
                 "{} | {}",
@@ -153,7 +147,7 @@ impl MySlackMessage {
             some_into(SlackSectionBlock::new().with_text(md!("{}", body)))
         ])
     }
-    
+
     fn render_basic_action(&self) -> SlackMessageContent {
         SlackMessageContent::new().with_blocks(slack_blocks![some_into(
             SlackSectionBlock::new().with_text(md!(
@@ -183,7 +177,7 @@ fn format_pull_request_url(pull_request: &PullRequest) -> String {
     format!("<{}|{}>", pull_request.url, pull_request.title)
 }
 
-// TODO remove this 
+// TODO remove this
 fn config_env_var(name: &str) -> Result<String, anyhow::Error> {
     Ok(std::env::var(name)?)
 }

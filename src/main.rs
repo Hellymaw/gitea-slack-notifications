@@ -8,10 +8,9 @@ use tracing;
 use tracing_appender;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
-pub mod gitea_webhooks;
-pub mod user_lookup;
 pub mod gitea;
 pub mod slack;
+pub mod user_lookup;
 
 const MAX_LOG_FILES: usize = 48;
 
@@ -80,7 +79,9 @@ async fn post_repo_payload(payload: gitea::webhook::Webhook, db: Extension<PgPoo
     };
 
     // TODO gross, need to fixup
-    let slack_message = if let Ok(Some(message)) = slack::message::MySlackMessage::from_gitea_webhook(payload, &*db).await {
+    let slack_message = if let Ok(Some(message)) =
+        slack::message::MySlackMessage::from_gitea_webhook(payload, &*db).await
+    {
         message
     } else {
         return;

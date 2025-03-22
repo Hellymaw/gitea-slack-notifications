@@ -1,6 +1,7 @@
 use slack_morphism::prelude::*;
+use tracing::{self, instrument};
 
-
+#[instrument]
 pub async fn fetch_user_from_email(email: String) -> Result<SlackUser, anyhow::Error> {
     // TODO: Shift this management elsewhere
     let client = SlackClient::new(SlackClientHyperConnector::new()?);
@@ -9,9 +10,10 @@ pub async fn fetch_user_from_email(email: String) -> Result<SlackUser, anyhow::E
     let session = client.open_session(&token);
 
     let request = SlackApiUsersLookupByEmailRequest::new(EmailAddress::new(email));
-    let slack_user = session.users_lookup_by_email(&request).await?;
+    let user = session.users_lookup_by_email(&request).await?;
 
-    Ok(slack_user.user)
+    tracing::info!("Retrieved user: {user:?}");
+    Ok(user.user)
 }
 
 // TODO: Remove
